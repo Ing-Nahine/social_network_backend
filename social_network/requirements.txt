@@ -1,3 +1,6 @@
+aiohappyeyeballs==2.6.1
+aiohttp==3.12.15
+aiosignal==1.4.0
 amqp==5.3.1
 asgiref==3.9.1
 attrs==25.3.0
@@ -34,7 +37,9 @@ djoser==2.3.3
 drf-yasg==1.21.10
 Faker==37.5.3
 flower==2.0.1
+frozenlist==1.7.0
 gunicorn==23.0.0
+http_ece==1.2.1
 humanize==4.12.3
 hyperlink==21.0.0
 idna==3.10
@@ -43,13 +48,16 @@ inflection==0.5.1
 jmespath==1.0.1
 kombu==5.5.4
 msgpack==1.1.1
+multidict==6.6.4
 oauthlib==3.3.1
 packaging==25.0
 pilkit==3.0
 pillow==11.3.0
 prometheus_client==0.22.1
 prompt_toolkit==3.0.51
+propcache==0.3.2
 psycopg2-binary==2.9.10
+py-vapid==1.9.2
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pycparser==2.22
@@ -59,6 +67,7 @@ python-dateutil==2.9.0.post0
 python-decouple==3.8
 python3-openid==3.2.0
 pytz==2025.2
+pywebpush==2.0.3
 PyYAML==6.0.2
 redis==6.4.0
 requests==2.32.5
@@ -80,4 +89,5 @@ urllib3==2.5.0
 vine==5.1.0
 wcwidth==0.2.13
 whitenoise==6.7.0
+yarl==1.20.1
 zope.interface==7.2

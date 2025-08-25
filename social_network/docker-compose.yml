@@ -1,0 +1,178 @@
+services:
+  # Base de données PostgreSQL
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: social_network
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis pour Celery et Channels
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Application Django
+  web:
+    build: .
+    restart: always
+    command: >
+      sh -c "
+             python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             gunicorn social_network.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+    volumes:
+      - .:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=False
+      - DB_HOST=db
+      - REDIS_HOST=redis
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Worker Celery
+  celery_worker:
+    build: .
+    restart: always
+    command: celery -A social_network worker --loglevel=info --concurrency=2
+    volumes:
+      - .:/app
+      - media_volume:/app/media
+    environment:
+      - DEBUG=False
+      - DB_HOST=db
+      - REDIS_HOST=redis
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Celery Beat (tâches programmées)
+  celery_beat:
+    build: .
+    restart: always
+    command: celery -A social_network beat --loglevel=info
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=False
+      - DB_HOST=db
+      - REDIS_HOST=redis
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Serveur ASGI pour WebSockets
+  daphne:
+    build: .
+    restart: always
+    command: daphne -b 0.0.0.0 -p 8001 social_network.asgi:application
+    ports:
+      - "8001:8001"
+    volumes:
+      - .:/app
+    environment:
+      - DEBUG=False
+      - DB_HOST=db
+      - REDIS_HOST=redis
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # Nginx (reverse proxy)
+
+  nginx:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - static_volume:/var/www/static
+      - media_volume:/var/www/media
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - web
+      - daphne
+
+
+  # Monitoring avec Flower (optionnel)
+  # flower:
+  #   build: .
+  #   restart: always
+  #   command: celery -A social_network flower --port=5555
+  #   ports:
+  #     - "5555:5555"
+  #   environment:
+  #     - DEBUG=False
+  #     - DB_HOST=db
+  #     - REDIS_HOST=redis
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+
+
+  flower:
+    build: .
+    restart: always
+    command: celery -A social_network flower --port=5555 --broker=redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    environment:
+      - DEBUG=False
+      - DB_HOST=db
+      - REDIS_HOST=redis
+      - CELERY_BROKER_URL=redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+
+
+
+
+        
+
+volumes:
+  postgres_data:
+  redis_data:
+  static_volume:
+  media_volume:
