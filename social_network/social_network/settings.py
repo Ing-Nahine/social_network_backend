@@ -22,7 +22,6 @@ DJANGO_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
 ]
 
 THIRD_PARTY_APPS = [
@@ -32,7 +31,7 @@ THIRD_PARTY_APPS = [
     'django_filters',
     'channels',
     'imagekit',
-    'drf_yasg',
+     'drf_yasg',
     
 ]
 
@@ -42,7 +41,7 @@ LOCAL_APPS = [
     'apps.posts',
     'apps.interactions',
     'apps.notifications',
-    'apps.media_management',
+    # 'apps.media_management',
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS

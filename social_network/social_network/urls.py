@@ -49,7 +49,7 @@ urlpatterns = [
     path('api/posts/', include('apps.posts.urls')),
     path('api/interactions/', include('apps.interactions.urls')),
     path('api/notifications/', include('apps.notifications.urls')),
-    path('api/media/', include('apps.media_management.urls')),
+    # path('api/media/', include('apps.media_management.urls')),
     
     # Health check
     path('health/', include([
