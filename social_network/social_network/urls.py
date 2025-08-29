@@ -44,7 +44,6 @@ urlpatterns = [
     ])),
     
     # Applications
-    path('api/auth/', include('apps.authentication.urls')),
     path('api/users/', include('apps.users.urls')),
     path('api/posts/', include('apps.posts.urls')),
     path('api/interactions/', include('apps.interactions.urls')),

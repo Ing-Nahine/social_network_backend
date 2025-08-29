@@ -3,9 +3,9 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
+from django.utils import timezone
 
 User = get_user_model()
-
 
 class Notification(models.Model):
     """Modèle pour les notifications"""
@@ -87,7 +87,7 @@ class Notification(models.Model):
         """Marquer la notification comme lue"""
         if not self.is_read:
             self.is_read = True
-            self.read_at = models.timezone.now()
+            self.read_at = timezone.now()
             self.save(update_fields=['is_read', 'read_at'])
 
     @property

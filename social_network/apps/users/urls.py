@@ -7,15 +7,23 @@ urlpatterns = [
     # Inscription
     path('register/', views.UserRegistrationView.as_view(), name='register'),
     
+
+    # Recherche et suggestions
+    path('search/', views.UserSearchView.as_view(), name='user_search'),
+    path('suggestions/', views.SuggestedUsersView.as_view(), name='suggested_users'),
+    
+    
+    
     # Profil utilisateur
     path('profile/', views.UserProfileView.as_view(), name='profile'),
     path('profile/settings/', views.UserProfileSettingsView.as_view(), name='profile_settings'),
     path('profile/toggle-private/', views.toggle_private_account, name='toggle_private'),
     
     # Détails utilisateur public
-    path('<str:username>/', views.UserDetailView.as_view(), name='user_detail'),
     path('<str:username>/stats/', views.UserStatsView.as_view(), name='user_stats'),
     path('<str:username>/activity/', views.user_activity_stats, name='user_activity'),
+    path('<str:username>/', views.UserDetailView.as_view(), name='user_detail'),
+    
     
     # Relations de suivi
     path('<str:username>/follow/', views.FollowUserView.as_view(), name='follow_user'),
@@ -26,10 +34,6 @@ urlpatterns = [
     # Blocage (fonctionnalité future)
     path('<str:username>/block/', views.block_user, name='block_user'),
     path('blocked/', views.UserBlockListView.as_view(), name='blocked_users'),
-    
-    # Recherche et suggestions
-    path('search/', views.UserSearchView.as_view(), name='user_search'),
-    path('suggestions/', views.SuggestedUsersView.as_view(), name='suggested_users'),
     
     # Préférences
     path('feed/preferences/', views.user_feed_preferences, name='feed_preferences'),

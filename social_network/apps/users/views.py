@@ -9,6 +9,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
+from django.db import models
 
 from .models import Follow, UserProfile
 from .serializers import (
@@ -60,27 +61,27 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
 
 
 class UserDetailView(generics.RetrieveAPIView):
-    """Vue pour récupérer les détails d'un utilisateur public"""
-    
     serializer_class = UserSerializer
     permission_classes = [permissions.AllowAny]
     lookup_field = 'username'
 
-    def get_queryset(self):
-        return User.objects.select_related('profile').prefetch_related(
-            Prefetch('posts', queryset=Post.objects.order_by('-created_at')[:5])
-        )
+    def get_object(self):
+        username = self.kwargs.get(self.lookup_field)
+        try:
+            return User.objects.get(username=username)
+        except User.DoesNotExist:
+            from rest_framework.exceptions import NotFound
+            raise NotFound("Utilisateur non trouvé")
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer = self.get_serializer(instance)
-        
+
         # Ajouter des statistiques supplémentaires
         data = serializer.data
-        data['recent_posts'] = instance.posts.all()[:5].values(
+        data['recent_posts'] = list(instance.posts.all()[:5].values(
             'id', 'content', 'likes_count', 'created_at'
-        )
-        
+        ))
         return Response(data)
 
 

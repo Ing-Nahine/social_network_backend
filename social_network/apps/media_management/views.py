@@ -16,6 +16,10 @@ from .serializers import (
     PostMediaSerializer,
     MediaAnalyticsSerializer
 )
+import traceback
+
+from django.shortcuts import get_object_or_404
+from apps.posts.models import Post, PostMedia
 from .services import MediaService, MediaAnalyticsService
 
 logger = logging.getLogger(__name__)
@@ -324,77 +328,69 @@ def popular_media(request):
         'period_days': days
     })
 
-
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def attach_media_to_post(request):
     """Attache des médias à un post"""
-    
     post_id = request.data.get('post_id')
     media_ids = request.data.get('media_ids', [])
     
     if not post_id:
-        return Response(
-            {'error': _('ID du post requis')},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+        return Response({'error': 'ID du post requis'}, status=400)
     
-    if not media_ids or len(media_ids) > 4:  # Max 4 médias par post
-        return Response(
-            {'error': _('1 à 4 médias requis')},
-            status=status.HTTP_400_BAD_REQUEST
-        )
+    if not media_ids or len(media_ids) > 4:
+        return Response({'error': '1 à 4 médias requis'}, status=400)
     
     try:
-        # Vérifier que le post existe et appartient à l'utilisateur
-        from .models import Post  # Import local
+        # Vérifier que le post existe
         post = get_object_or_404(Post, id=post_id, author=request.user)
         
-        # Vérifier que tous les médias existent et appartiennent à l'utilisateur
+        # Vérifier que les médias existent
         media_files = MediaFile.objects.filter(
             id__in=media_ids,
             uploaded_by=request.user
         )
         
         if len(media_files) != len(media_ids):
-            return Response(
-                {'error': _('Certains médias sont introuvables')},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({'error': 'Médias introuvables'}, status=404)
         
-        # Supprimer les anciennes associations
+        # Supprimer anciennes associations
         PostMedia.objects.filter(post=post).delete()
         
-        # Créer les nouvelles associations
-        post_media_objects = []
+        # Créer nouvelles associations
         for order, media_file in enumerate(media_files):
-            post_media_objects.append(
-                PostMedia(
+            # Déterminer le type de média basé sur mime_type
+            if media_file.mime_type.startswith('image/'):
+                media_type = 'gif' if 'gif' in media_file.mime_type else 'image'
+                PostMedia.objects.create(
                     post=post,
-                    media_file=media_file,
+                    media_type=media_type,
+                    image=media_file.file,
+                    alt_text=getattr(media_file, 'alt_text', ''),
+                    width=getattr(media_file, 'width', None),
+                    height=getattr(media_file, 'height', None),
+                    file_size=getattr(media_file, 'file_size', None),
                     order=order
                 )
-            )
+            elif media_file.mime_type.startswith('video/'):
+                PostMedia.objects.create(
+                    post=post,
+                    media_type='video',
+                    video=media_file.file,
+                    width=getattr(media_file, 'width', None),
+                    height=getattr(media_file, 'height', None),
+                    file_size=getattr(media_file, 'file_size', None),
+                    duration=getattr(media_file, 'duration', None),
+                    order=order
+                )
         
-        PostMedia.objects.bulk_create(post_media_objects)
-        
-        # Sérialiser le résultat
-        post_media = PostMedia.objects.filter(post=post).order_by('order')
-        serializer = PostMediaSerializer(post_media, many=True)
-        
-        return Response({
-            'message': _('Médias attachés avec succès'),
-            'post_media': serializer.data
-        })
+        return Response({'message': 'Médias attachés avec succès'}, status=200)
         
     except Exception as e:
-        logger.error(f"Erreur attachement médias au post: {e}")
-        return Response(
-            {'error': _('Erreur lors de l\'attachement')},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
-
-
+        error_details = traceback.format_exc()
+        print(f"ERREUR COMPLÈTE: {error_details}")
+        return Response({'error': 'Erreur serveur'}, status=500)
+    
 @api_view(['GET'])
 def media_proxy(request, media_id):
     """Proxy pour servir les médias avec analytics"""

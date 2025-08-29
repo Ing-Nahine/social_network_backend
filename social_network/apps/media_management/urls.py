@@ -12,5 +12,5 @@ urlpatterns = [
     path('library/', user_media_library, name='user-media-library'),
     path('popular/', popular_media, name='popular-media'),
     path('attach-to-post/', attach_media_to_post, name='attach-media-to-post'),
-    path('proxy/<int:media_id>/', media_proxy, name='media-proxy'),
+    path('proxy/<uuid:media_id>/', media_proxy, name='media-proxy'),
 ]

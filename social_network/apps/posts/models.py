@@ -140,6 +140,14 @@ class PostMedia(models.Model):
     
     media_type = models.CharField(_('Type de média'), max_length=10, choices=MEDIA_TYPES)
     
+    media_file = models.ForeignKey(
+        'media_management.MediaFile',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        verbose_name=_('Fichier média')
+    )
+    
     # Fichiers
     image = ProcessedImageField(
         upload_to='posts/images/',

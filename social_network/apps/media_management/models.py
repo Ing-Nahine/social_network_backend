@@ -167,46 +167,6 @@ class MediaFile(models.Model):
         return os.path.splitext(self.original_filename)[1].lower()
 
 
-# class PostMedia(models.Model):
-#     """Relation entre posts et médias"""
-#     from apps.posts.models import Post  # Import local pour éviter les imports circulaires
-    
-#     post = models.ForeignKey(
-#         'Post',  # Référence string pour éviter les imports circulaires
-#         on_delete=models.CASCADE,
-#         related_name='media_files',
-#         verbose_name=_('Post')
-#     )
-    
-#     media_file = models.ForeignKey(
-#         MediaFile,
-#         on_delete=models.CASCADE,
-#         related_name='post_relations',
-#         verbose_name=_('Fichier média')
-#     )
-    
-#     # Position dans le post (pour l'ordre d'affichage)
-#     order = models.PositiveIntegerField(_('Ordre'), default=0)
-    
-#     # Métadonnées spécifiques au post
-#     description = models.CharField(_('Description'), max_length=200, blank=True)
-    
-#     created_at = models.DateTimeField(_('Créé le'), auto_now_add=True)
-
-#     class Meta:
-#         db_table = 'post_media'
-#         verbose_name = _('Média de post')
-#         verbose_name_plural = _('Médias de posts')
-#         ordering = ['order', 'created_at']
-#         unique_together = ('post', 'media_file')
-#         indexes = [
-#             models.Index(fields=['post', 'order']),
-#         ]
-
-#     def __str__(self):
-#         return f"Média {self.media_file.media_type} pour post {self.post.id}"
-
-
 class MediaThumbnail(models.Model):
     """Miniatures générées pour les médias"""
     

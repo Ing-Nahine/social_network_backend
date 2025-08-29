@@ -116,6 +116,274 @@ class MediaService:
             if media_file.media_type == 'image':
                 cls._extract_image_metadata(media_file)
         except Exception as e:
+            logger.error(f"Erreur extraction métadonnées {media_file.id}: {e}")
+            return False
+
+    @classmethod
+    def _extract_image_metadata(cls, media_file):
+        """Extrait les métadonnées d'une image"""
+        try:
+            with Image.open(media_file.file.path) as img:
+                media_file.width = img.width
+                media_file.height = img.height
+                
+                # Correction de l'orientation EXIF
+                img = ImageOps.exif_transpose(img)
+                
+                media_file.save(update_fields=['width', 'height'])
+        except Exception as e:
+            logger.error(f"Erreur lors de l'extraction des métadonnées image: {e}")
+
+    @classmethod
+    def _queue_processing_tasks(cls, media_file):
+        """Programme les tâches de traitement en arrière-plan"""
+        tasks = []
+        
+        if media_file.media_type == 'image':
+            tasks.append('thumbnail_generation')
+            tasks.append('image_optimization')
+        elif media_file.media_type == 'video':
+            tasks.append('thumbnail_generation')
+            tasks.append('video_compression')
+            tasks.append('metadata_extraction')
+        
+        for task_type in tasks:
+            MediaProcessingQueue.objects.create(
+                media_file=media_file,
+                task_type=task_type,
+                priority=7 if task_type == 'thumbnail_generation' else 5
+            )
+
+    @classmethod
+    def generate_thumbnails(cls, media_file: MediaFile) -> List[MediaThumbnail]:
+        """Génère les miniatures pour un fichier média"""
+        thumbnails = []
+        
+        if media_file.media_type not in ['image', 'video']:
+            return thumbnails
+        
+        try:
+            # Pour les images, utiliser PIL
+            if media_file.media_type == 'image':
+                thumbnails = cls._generate_image_thumbnails(media_file)
+            
+            # Pour les vidéos, extraire une frame (nécessite ffmpeg)
+            elif media_file.media_type == 'video':
+                thumbnails = cls._generate_video_thumbnails(media_file)
+                
+        except Exception as e:
+            logger.error(f"Erreur génération miniatures pour {media_file.id}: {e}")
+        
+        return thumbnails
+
+    @classmethod
+    def _generate_image_thumbnails(cls, media_file: MediaFile) -> List[MediaThumbnail]:
+        """Génère des miniatures pour une image"""
+        thumbnails = []
+        
+        try:
+            with Image.open(media_file.file.path) as img:
+                # Correction orientation EXIF
+                img = ImageOps.exif_transpose(img)
+                
+                for size_name, dimensions in cls.THUMBNAIL_SIZES.items():
+                    # Créer la miniature
+                    thumb_img = img.copy()
+                    thumb_img.thumbnail(dimensions, Image.Resampling.LANCZOS)
+                    
+                    # Sauvegarder dans un buffer
+                    from io import BytesIO
+                    buffer = BytesIO()
+                    thumb_img.save(buffer, format='JPEG', quality=85)
+                    buffer.seek(0)
+                    
+                    # Créer le nom de fichier
+                    filename = f"{media_file.id}_{size_name}.jpg"
+                    
+                    # Créer la miniature en base
+                    thumbnail = MediaThumbnail.objects.create(
+                        media_file=media_file,
+                        size=size_name,
+                        width=thumb_img.width,
+                        height=thumb_img.height,
+                        file_size=len(buffer.getvalue())
+                    )
+                    
+                    # Sauvegarder le fichier
+                    thumbnail.thumbnail.save(
+                        filename,
+                        ContentFile(buffer.getvalue()),
+                        save=True
+                    )
+                    
+                    thumbnails.append(thumbnail)
+                    logger.info(f"Miniature {size_name} générée pour {media_file.id}")
+        
+        except Exception as e:
+            logger.error(f"Erreur génération miniatures image {media_file.id}: {e}")
+        
+        return thumbnails
+
+    @classmethod
+    def _generate_video_thumbnails(cls, media_file: MediaFile) -> List[MediaThumbnail]:
+        """Génère des miniatures pour une vidéo (nécessite ffmpeg)"""
+        thumbnails = []
+        
+        try:
+            import subprocess
+            import tempfile
+            
+            # Créer un fichier temporaire pour l'image extraite
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
+                temp_path = temp_file.name
+            
+            # Commande ffmpeg pour extraire une frame à 1 seconde
+            cmd = [
+                'ffmpeg',
+                '-i', media_file.file.path,
+                '-ss', '1',  # À 1 seconde
+                '-vframes', '1',  # Une seule frame
+                '-y',  # Overwrite
+                temp_path
+            ]
+            
+            # Exécuter ffmpeg
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode == 0 and os.path.exists(temp_path):
+                # Utiliser l'image extraite pour générer les miniatures
+                with Image.open(temp_path) as img:
+                    for size_name, dimensions in cls.THUMBNAIL_SIZES.items():
+                        thumb_img = img.copy()
+                        thumb_img.thumbnail(dimensions, Image.Resampling.LANCZOS)
+                        
+                        from io import BytesIO
+                        buffer = BytesIO()
+                        thumb_img.save(buffer, format='JPEG', quality=85)
+                        buffer.seek(0)
+                        
+                        filename = f"{media_file.id}_{size_name}.jpg"
+                        
+                        thumbnail = MediaThumbnail.objects.create(
+                            media_file=media_file,
+                            size=size_name,
+                            width=thumb_img.width,
+                            height=thumb_img.height,
+                            file_size=len(buffer.getvalue())
+                        )
+                        
+                        thumbnail.thumbnail.save(
+                            filename,
+                            ContentFile(buffer.getvalue()),
+                            save=True
+                        )
+                        
+                        thumbnails.append(thumbnail)
+                
+                # Nettoyer le fichier temporaire
+                os.unlink(temp_path)
+                
+        except Exception as e:
+            logger.error(f"Erreur génération miniatures vidéo {media_file.id}: {e}")
+        
+        return thumbnails
+
+    @classmethod
+    def delete_media(cls, media_file: MediaFile, user) -> bool:
+        """
+        Supprime un fichier média et tous ses assets associés
+        
+        Args:
+            media_file: Fichier à supprimer
+            user: Utilisateur demandant la suppression
+            
+        Returns:
+            bool: True si suppression réussie
+        """
+        # Vérifier les permissions
+        if media_file.uploaded_by != user:
+            return False
+        
+        try:
+            # Supprimer les miniatures
+            for thumbnail in media_file.thumbnails.all():
+                if thumbnail.thumbnail:
+                    default_storage.delete(thumbnail.thumbnail.name)
+            
+            # Supprimer le fichier principal
+            if media_file.file:
+                default_storage.delete(media_file.file.name)
+            
+            # Supprimer l'enregistrement
+            media_file.delete()
+            
+            logger.info(f"Média {media_file.id} supprimé par {user.username}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Erreur suppression média {media_file.id}: {e}")
+            return False
+
+    @classmethod
+    def get_media_stats(cls, media_file: MediaFile) -> Dict[str, Any]:
+        """Retourne les statistiques d'un fichier média"""
+        try:
+            analytics = media_file.analytics
+            return {
+                'total_views': analytics.total_views,
+                'unique_views': analytics.unique_views,
+                'total_likes': analytics.total_likes,
+                'total_shares': analytics.total_shares,
+                'total_downloads': analytics.total_downloads,
+                'average_view_duration': analytics.average_view_duration,
+                'bounce_rate': analytics.bounce_rate,
+            }
+        except:
+            return {
+                'total_views': 0,
+                'unique_views': 0,
+                'total_likes': 0,
+                'total_shares': 0,
+                'total_downloads': 0,
+                'average_view_duration': 0.0,
+                'bounce_rate': 0.0,
+            }
+
+    @classmethod
+    def optimize_image(cls, media_file: MediaFile) -> bool:
+        """Optimise une image (compression, format, etc.)"""
+        if media_file.media_type != 'image':
+            return False
+        
+        try:
+            with Image.open(media_file.file.path) as img:
+                # Conversion en RGB si nécessaire
+                if img.mode in ('RGBA', 'LA', 'P'):
+                    background = Image.new('RGB', img.size, (255, 255, 255))
+                    if img.mode == 'P':
+                        img = img.convert('RGBA')
+                    background.paste(img, mask=img.split()[-1] if 'A' in img.mode else None)
+                    img = background
+                
+                # Correction orientation
+                img = ImageOps.exif_transpose(img)
+                
+                # Sauvegarde optimisée
+                img.save(
+                    media_file.file.path,
+                    format='JPEG',
+                    quality=85,
+                    optimize=True,
+                    progressive=True
+                )
+                
+                # Mettre à jour la taille du fichier
+                media_file.file_size = os.path.getsize(media_file.file.path)
+                media_file.save(update_fields=['file_size'])
+                
+                return True
+                
+        except Exception as e:
             logger.error(f"Erreur optimisation image {media_file.id}: {e}")
             return False
 
@@ -400,271 +668,4 @@ class MediaAnalyticsService:
             popularity_score=F('analytics__total_views') + 
                            F('analytics__total_likes') * 2 + 
                            F('analytics__total_shares') * 3
-        ).order_by('-popularity_score')[:limit]("Erreur lors de l'extraction des métadonnées: {e}")
-
-    @classmethod
-    def _extract_image_metadata(cls, media_file):
-        """Extrait les métadonnées d'une image"""
-        try:
-            with Image.open(media_file.file.path) as img:
-                media_file.width = img.width
-                media_file.height = img.height
-                
-                # Correction de l'orientation EXIF
-                img = ImageOps.exif_transpose(img)
-                
-                media_file.save(update_fields=['width', 'height'])
-        except Exception as e:
-            logger.error(f"Erreur lors de l'extraction des métadonnées image: {e}")
-
-    @classmethod
-    def _queue_processing_tasks(cls, media_file):
-        """Programme les tâches de traitement en arrière-plan"""
-        tasks = []
-        
-        if media_file.media_type == 'image':
-            tasks.append('thumbnail_generation')
-            tasks.append('image_optimization')
-        elif media_file.media_type == 'video':
-            tasks.append('thumbnail_generation')
-            tasks.append('video_compression')
-            tasks.append('metadata_extraction')
-        
-        for task_type in tasks:
-            MediaProcessingQueue.objects.create(
-                media_file=media_file,
-                task_type=task_type,
-                priority=7 if task_type == 'thumbnail_generation' else 5
-            )
-
-    @classmethod
-    def generate_thumbnails(cls, media_file: MediaFile) -> List[MediaThumbnail]:
-        """Génère les miniatures pour un fichier média"""
-        thumbnails = []
-        
-        if media_file.media_type not in ['image', 'video']:
-            return thumbnails
-        
-        try:
-            # Pour les images, utiliser PIL
-            if media_file.media_type == 'image':
-                thumbnails = cls._generate_image_thumbnails(media_file)
-            
-            # Pour les vidéos, extraire une frame (nécessite ffmpeg)
-            elif media_file.media_type == 'video':
-                thumbnails = cls._generate_video_thumbnails(media_file)
-                
-        except Exception as e:
-            logger.error(f"Erreur génération miniatures pour {media_file.id}: {e}")
-        
-        return thumbnails
-
-    @classmethod
-    def _generate_image_thumbnails(cls, media_file: MediaFile) -> List[MediaThumbnail]:
-        """Génère des miniatures pour une image"""
-        thumbnails = []
-        
-        try:
-            with Image.open(media_file.file.path) as img:
-                # Correction orientation EXIF
-                img = ImageOps.exif_transpose(img)
-                
-                for size_name, dimensions in cls.THUMBNAIL_SIZES.items():
-                    # Créer la miniature
-                    thumb_img = img.copy()
-                    thumb_img.thumbnail(dimensions, Image.Resampling.LANCZOS)
-                    
-                    # Sauvegarder dans un buffer
-                    from io import BytesIO
-                    buffer = BytesIO()
-                    thumb_img.save(buffer, format='JPEG', quality=85)
-                    buffer.seek(0)
-                    
-                    # Créer le nom de fichier
-                    filename = f"{media_file.id}_{size_name}.jpg"
-                    
-                    # Créer la miniature en base
-                    thumbnail = MediaThumbnail.objects.create(
-                        media_file=media_file,
-                        size=size_name,
-                        width=thumb_img.width,
-                        height=thumb_img.height,
-                        file_size=len(buffer.getvalue())
-                    )
-                    
-                    # Sauvegarder le fichier
-                    thumbnail.thumbnail.save(
-                        filename,
-                        ContentFile(buffer.getvalue()),
-                        save=True
-                    )
-                    
-                    thumbnails.append(thumbnail)
-                    logger.info(f"Miniature {size_name} générée pour {media_file.id}")
-        
-        except Exception as e:
-            logger.error(f"Erreur génération miniatures image {media_file.id}: {e}")
-        
-        return thumbnails
-
-    @classmethod
-    def _generate_video_thumbnails(cls, media_file: MediaFile) -> List[MediaThumbnail]:
-        """Génère des miniatures pour une vidéo (nécessite ffmpeg)"""
-        thumbnails = []
-        
-        try:
-            import subprocess
-            import tempfile
-            
-            # Créer un fichier temporaire pour l'image extraite
-            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as temp_file:
-                temp_path = temp_file.name
-            
-            # Commande ffmpeg pour extraire une frame à 1 seconde
-            cmd = [
-                'ffmpeg',
-                '-i', media_file.file.path,
-                '-ss', '1',  # À 1 seconde
-                '-vframes', '1',  # Une seule frame
-                '-y',  # Overwrite
-                temp_path
-            ]
-            
-            # Exécuter ffmpeg
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            if result.returncode == 0 and os.path.exists(temp_path):
-                # Utiliser l'image extraite pour générer les miniatures
-                with Image.open(temp_path) as img:
-                    for size_name, dimensions in cls.THUMBNAIL_SIZES.items():
-                        thumb_img = img.copy()
-                        thumb_img.thumbnail(dimensions, Image.Resampling.LANCZOS)
-                        
-                        from io import BytesIO
-                        buffer = BytesIO()
-                        thumb_img.save(buffer, format='JPEG', quality=85)
-                        buffer.seek(0)
-                        
-                        filename = f"{media_file.id}_{size_name}.jpg"
-                        
-                        thumbnail = MediaThumbnail.objects.create(
-                            media_file=media_file,
-                            size=size_name,
-                            width=thumb_img.width,
-                            height=thumb_img.height,
-                            file_size=len(buffer.getvalue())
-                        )
-                        
-                        thumbnail.thumbnail.save(
-                            filename,
-                            ContentFile(buffer.getvalue()),
-                            save=True
-                        )
-                        
-                        thumbnails.append(thumbnail)
-                
-                # Nettoyer le fichier temporaire
-                os.unlink(temp_path)
-                
-        except Exception as e:
-            logger.error(f"Erreur génération miniatures vidéo {media_file.id}: {e}")
-        
-        return thumbnails
-
-    @classmethod
-    def delete_media(cls, media_file: MediaFile, user) -> bool:
-        """
-        Supprime un fichier média et tous ses assets associés
-        
-        Args:
-            media_file: Fichier à supprimer
-            user: Utilisateur demandant la suppression
-            
-        Returns:
-            bool: True si suppression réussie
-        """
-        # Vérifier les permissions
-        if media_file.uploaded_by != user:
-            return False
-        
-        try:
-            # Supprimer les miniatures
-            for thumbnail in media_file.thumbnails.all():
-                if thumbnail.thumbnail:
-                    default_storage.delete(thumbnail.thumbnail.name)
-            
-            # Supprimer le fichier principal
-            if media_file.file:
-                default_storage.delete(media_file.file.name)
-            
-            # Supprimer l'enregistrement
-            media_file.delete()
-            
-            logger.info(f"Média {media_file.id} supprimé par {user.username}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Erreur suppression média {media_file.id}: {e}")
-            return False
-
-    @classmethod
-    def get_media_stats(cls, media_file: MediaFile) -> Dict[str, Any]:
-        """Retourne les statistiques d'un fichier média"""
-        try:
-            analytics = media_file.analytics
-            return {
-                'total_views': analytics.total_views,
-                'unique_views': analytics.unique_views,
-                'total_likes': analytics.total_likes,
-                'total_shares': analytics.total_shares,
-                'total_downloads': analytics.total_downloads,
-                'average_view_duration': analytics.average_view_duration,
-                'bounce_rate': analytics.bounce_rate,
-            }
-        except:
-            return {
-                'total_views': 0,
-                'unique_views': 0,
-                'total_likes': 0,
-                'total_shares': 0,
-                'total_downloads': 0,
-                'average_view_duration': 0.0,
-                'bounce_rate': 0.0,
-            }
-
-    @classmethod
-    def optimize_image(cls, media_file: MediaFile) -> bool:
-        """Optimise une image (compression, format, etc.)"""
-        if media_file.media_type != 'image':
-            return False
-        
-        try:
-            with Image.open(media_file.file.path) as img:
-                # Conversion en RGB si nécessaire
-                if img.mode in ('RGBA', 'LA', 'P'):
-                    background = Image.new('RGB', img.size, (255, 255, 255))
-                    if img.mode == 'P':
-                        img = img.convert('RGBA')
-                    background.paste(img, mask=img.split()[-1] if 'A' in img.mode else None)
-                    img = background
-                
-                # Correction orientation
-                img = ImageOps.exif_transpose(img)
-                
-                # Sauvegarde optimisée
-                img.save(
-                    media_file.file.path,
-                    format='JPEG',
-                    quality=85,
-                    optimize=True,
-                    progressive=True
-                )
-                
-                # Mettre à jour la taille du fichier
-                media_file.file_size = os.path.getsize(media_file.file.path)
-                media_file.save(update_fields=['file_size'])
-                
-                return True
-                
-        except Exception as e:
-            return False
+        ).order_by('-popularity_score')[:limit]

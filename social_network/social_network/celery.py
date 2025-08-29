@@ -43,8 +43,8 @@ app.conf.update(
     # Configuration des queues
     task_routes={
         'apps.notifications.tasks.*': {'queue': 'notifications'},
-        'apps.media_management.tasks.*': {'queue': 'media'},
-        'apps.posts.tasks.*': {'queue': 'posts'},
+        # 'apps.media_management.tasks.*': {'queue': 'media'},
+        # 'apps.posts.tasks.*': {'queue': 'posts'},
     },
     
     # Retry configuration
