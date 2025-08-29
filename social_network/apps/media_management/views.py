@@ -39,10 +39,15 @@ class MediaFileViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Filtre les médias selon l'utilisateur"""
+        # Évite les erreurs lors de la génération Swagger/OpenAPI
+        if getattr(self, 'swagger_fake_view', False):
+            return MediaFile.objects.none()
+        
+        # Admin voit tout, utilisateur normal ne voit que ses fichiers
         if self.request.user.is_staff:
             return MediaFile.objects.all()
         return MediaFile.objects.filter(uploaded_by=self.request.user)
-    
+
     def perform_create(self, serializer):
         """Upload d'un nouveau média"""
         try:
@@ -423,7 +428,7 @@ class MediaAnalyticsViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = MediaAnalytics.objects.all()
     serializer_class = MediaAnalyticsSerializer
     permission_classes = [permissions.IsAdminUser]
-    
+    lookup_field = 'media_file_id'
     @action(detail=False, methods=['get'])
     def overview(self, request):
         """Vue d'ensemble des analytics"""

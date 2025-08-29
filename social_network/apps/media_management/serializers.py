@@ -49,11 +49,16 @@ class MediaFileSerializer(serializers.ModelSerializer):
     
     def get_url(self, obj):
         """Retourne l'URL du fichier média"""
+        if isinstance(obj, dict):
+            return None
         return obj.file_url
-    
+
     def get_thumbnail_url(self, obj):
         """Retourne l'URL de la miniature"""
+        if isinstance(obj, dict):
+            return None
         return obj.thumbnail_url
+
 
 
 class MediaFileDetailSerializer(MediaFileSerializer):
